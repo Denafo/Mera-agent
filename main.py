@@ -1,8 +1,9 @@
 import os
+import re
 import json
 import sqlite3
 from typing import List, Dict, Any
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import requests
@@ -27,7 +28,8 @@ LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
 
-# Tools
+# ================= TOOLS =================
+
 def run_calculator(expression: str) -> str:
     try:
         sanitized = "".join([c for c in expression if c in "0123456789+-*/(). "])
@@ -44,6 +46,19 @@ def read_notes() -> str:
     with sqlite3.connect(DB_PATH) as conn:
         rows = conn.execute("SELECT key, value FROM notes").fetchall()
     return json.dumps({k: v for k, v in rows})
+
+def web_search(query: str) -> str:
+    """Free Web Search Tool using DuckDuckGo"""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        res = requests.post("https://html.duckduckgo.com/html/", data={"q": query}, headers=headers, timeout=6)
+        snippets = re.findall(r'<a class="result__snippet[^>]*>(.*?)</a>', res.text, re.DOTALL)
+        clean_snippets = [re.sub(r'<[^>]+>', '', s).strip() for s in snippets[:3]]
+        if clean_snippets:
+            return "\n\n".join([f"Result {i+1}: {s}" for i, s in enumerate(clean_snippets)])
+        return "No web results found for this query."
+    except Exception as e:
+        return f"Search error: {e}"
 
 TOOLS_SPEC = [
     {
@@ -80,6 +95,18 @@ TOOLS_SPEC = [
             "description": "Fetch all saved notes and memory",
             "parameters": {"type": "object", "properties": {}}
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "Search the live internet for recent facts, news, and information",
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"]
+            }
+        }
     }
 ]
 
@@ -102,11 +129,11 @@ async def chat(payload: QueryRequest):
 
     headers = {"Authorization": f"Bearer {LLM_API_KEY}", "Content-Type": "application/json"}
     messages = [
-        {"role": "system", "content": "You are an autonomous AI Agent. Use tools whenever calculation or memory access is needed."},
+        {"role": "system", "content": "You are an autonomous AI Agent. Use web_search for current events/facts, calculator for math, and notes for saving user data."},
         {"role": "user", "content": payload.message}
     ]
 
-    for _ in range(3):
+    for _ in range(4):
         body = {
             "model": MODEL_NAME,
             "messages": messages,
@@ -130,6 +157,8 @@ async def chat(payload: QueryRequest):
                 out = save_note(args.get("key", ""), args.get("value", ""))
             elif func_name == "read_notes":
                 out = read_notes()
+            elif func_name == "web_search":
+                out = web_search(args.get("query", ""))
             else:
                 out = "Tool not found."
 
@@ -140,3 +169,4 @@ async def chat(payload: QueryRequest):
             })
 
     return {"response": "Agent step limit reached."}
+    a
