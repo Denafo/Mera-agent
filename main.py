@@ -25,8 +25,7 @@ init_db()
 
 # LLM Configuration
 LLM_API_KEY = os.getenv("LLM_API_KEY", "").strip()
-LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1").rstrip("/")
 
 # Tools
 def run_calculator(expression: str) -> str:
@@ -108,13 +107,31 @@ TOOLS_SPEC = [
     }
 ]
 
+def get_best_available_model(headers: dict) -> str:
+    """Aapke Groq account se active models automatically dhoondhta hai"""
+    try:
+        res = requests.get(f"{LLM_BASE_URL}/models", headers=headers, timeout=6)
+        if res.status_code == 200:
+            data = res.json().get("data", [])
+            model_ids = [m["id"] for m in data]
+            # Exclude non-chat models
+            chat_models = [
+                m for m in model_ids 
+                if not any(x in m.lower() for x in ["whisper", "guard", "embed", "vision"])
+            ]
+            if chat_models:
+                return chat_models[0]
+    except Exception:
+        pass
+    return "llama-3.1-8b-instant"
+
 @app.get("/", response_class=HTMLResponse)
 async def home():
     file_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
     if os.path.exists(file_path):
         with open(file_path, "r", encoding="utf-8") as f:
             return f.read()
-    return "<h1>index.html nahi mila</h1>"
+    return "<h1>index.html templates folder mein nahi mila</h1>"
 
 class QueryRequest(BaseModel):
     message: str
@@ -128,26 +145,29 @@ async def chat(payload: QueryRequest):
         "Authorization": f"Bearer {LLM_API_KEY}",
         "Content-Type": "application/json"
     }
+    
+    # Auto-detect best model
+    active_model = get_best_available_model(headers)
+
     messages = [
-        {"role": "system", "content": "You are a helpful AI assistant. Answer the user clearly."},
+        {"role": "system", "content": "You are a helpful autonomous AI agent. Use tools whenever calculation, web search, or memory note is needed."},
         {"role": "user", "content": payload.message}
     ]
 
     try:
         for _ in range(4):
             body = {
-                "model": MODEL_NAME,
+                "model": active_model,
                 "messages": messages,
                 "tools": TOOLS_SPEC,
                 "tool_choice": "auto"
             }
-            res = requests.post(f"{LLM_BASE_URL}/chat/completions", headers=headers, json=body, timeout=20)
+            res = requests.post(f"{LLM_BASE_URL}/chat/completions", headers=headers, json=body, timeout=25)
             data = res.json()
 
-            # Catch API errors directly
             if "error" in data:
-                err_msg = data["error"].get("message", json.dumps(data["error"]))
-                return {"response": f"Groq API Error: {err_msg}"}
+                err_msg = data["error"].get("message", str(data["error"]))
+                return {"response": f"Groq Error ({active_model}): {err_msg}"}
 
             if "choices" not in data or not data["choices"]:
                 return {"response": f"Unexpected Response: {data}"}
@@ -182,4 +202,4 @@ async def chat(payload: QueryRequest):
         return {"response": "Agent step limit reached."}
     except Exception as e:
         return {"response": f"Server Error: {str(e)}"}
-  
+        
