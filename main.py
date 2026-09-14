@@ -4,6 +4,7 @@ import ast
 import json
 import base64
 import sqlite3
+import urllib.parse
 from datetime import datetime
 from typing import List, Dict, Any
 from fastapi import FastAPI
@@ -80,7 +81,7 @@ def learn_behavior_rule(rule: str) -> str:
     """Saves creator corrections and behavioural rules permanently"""
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("INSERT OR IGNORE INTO behavioral_rules (rule) VALUES (?)", (rule.strip(),))
-    return f"Naya rule successfully save ho gaya: '{rule}'"
+    return f"Naya niyam DEMOR ne permanently save kar liya: '{rule}'"
 
 def get_behavior_rules() -> str:
     """Loads all saved feedback rules into system prompt"""
@@ -89,11 +90,26 @@ def get_behavior_rules() -> str:
     if not rows:
         return ""
     rules_text = "\n".join([f"- {r[0]}" for r in rows])
-    return f"\n[Boss ke dwara sikhaye gaye niyam jinka sakhti se palan karna hai]:\n{rules_text}\n"
+    return f"\n[Boss ke banaye niyam jinka sakhti se palan karna hai]:\n{rules_text}\n"
 
 def get_current_datetime() -> str:
     """Returns current real-time timestamp"""
     return datetime.now().strftime("%A, %d %B %Y, %I:%M:%S %p")
+
+def generate_image(prompt: str) -> str:
+    """Generates an image from a detailed English prompt and returns renderable HTML"""
+    try:
+        clean_prompt = prompt.replace("\n", " ").strip()
+        encoded = urllib.parse.quote(clean_prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded}?width=1024&height=1024&nologo=true"
+        return (
+            f"<div style='margin-top:10px;'>"
+            f"<img src='{image_url}' alt='{clean_prompt}' style='max-width:100%; border-radius:10px; display:block; box-shadow: 0 4px 10px rgba(0,0,0,0.3);'/>"
+            f"<br><a href='{image_url}' target='_blank' style='color:#38bdf8; text-decoration:none;'>🔗 Click here to view/download high-res image</a>"
+            f"</div>"
+        )
+    except Exception as e:
+        return f"Image generation error: {e}"
 
 def web_search(query: str) -> str:
     """Fetches real-time internet search snippets"""
@@ -125,12 +141,11 @@ def update_repo_code(file_path: str, new_code: str, commit_message: str) -> str:
     if not GITHUB_TOKEN:
         return "Error: GITHUB_TOKEN Render par configured nahi hai."
     
-    # Python code syntax validation
     if file_path.endswith(".py"):
         try:
             ast.parse(new_code)
         except SyntaxError as e:
-            return f"Commit Rejected: Code mein syntax error hai ({e}). Crash se bachane ke liye update cancel kiya gaya."
+            return f"Commit Rejected: Code mein syntax error hai ({e}). Update cancel kiya gaya."
 
     headers = {
         "Authorization": f"Bearer {GITHUB_TOKEN}",
@@ -161,6 +176,18 @@ TOOLS_SPEC = [
             "name": "calculator",
             "description": "Calculate math expressions accurately.",
             "parameters": {"type": "object", "properties": {"expression": {"type": "string"}}, "required": ["expression"]}
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": "Generate an AI image based on user request. The prompt must be in descriptive English.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prompt": {"type": "string", "description": "Highly descriptive visual prompt in English"}},
+                "required": ["prompt"]
+            }
         }
     },
     {
@@ -215,7 +242,7 @@ TOOLS_SPEC = [
         "type": "function",
         "function": {
             "name": "update_repo_code",
-            "description": "Modify files (like main.py or templates/index.html) in the GitHub repository when requested.",
+            "description": "Modify files in the GitHub repository when requested.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -293,11 +320,10 @@ async def chat(payload: QueryRequest):
     learned_rules = get_behavior_rules()
     system_prompt = (
         "Aapka naam DEMOR hai. Aap ek fully autonomous, obedient aur intelligent personal AI agent ho. "
-        "User aapka Creator aur Boss hai. Unki baat ko hamesha poori obedience aur respect ke saath follow karo. "
-        "Koshish karo ki kabhi behes na ho. "
-        "Jab bhi Boss koi nayi baat sikhayein ya tareeqa badalne ko bolein, 'learn_behavior_rule' tool turant call karo. "
-        "User jab code badalne ya self-upgrade karne ko kahe, tab 'update_repo_code' tool ka use karo bina syntax galti ke. "
-        "Math ke liye calculator, real-time jaankari ke liye web_search aur links ke liye read_url tool use karo."
+        "User aapka Creator aur Boss hai. Unki baat ko poori obedience aur respect ke saath follow karo. "
+        "Jab bhi user koi image/photo generate karne ya draw karne ko bole, foran 'generate_image' tool call karo. "
+        "Image prompt hamesha descriptive English mein detail ke sath create karo. "
+        "Nayi aadat sikhane par 'learn_behavior_rule' tool aur math ke liye calculator use karo."
         + learned_rules
     )
 
@@ -335,6 +361,8 @@ async def chat(payload: QueryRequest):
 
                     if f_name == "calculator":
                         out = run_calculator(args.get("expression", "0"))
+                    elif f_name == "generate_image":
+                        out = generate_image(args.get("prompt", "a futuristic cybernetic robot"))
                     elif f_name == "learn_behavior_rule":
                         out = learn_behavior_rule(args.get("rule", ""))
                     elif f_name == "save_note":
