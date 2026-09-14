@@ -320,8 +320,12 @@ TOOLS_SPEC = [
 # ================= MODEL RESOLVER & ORCHESTRATOR =================
 
 def resolve_model(headers: dict) -> List[str]:
-    global CACHED_WORKING_MODEL
-    if CACHED_WORKING_MODEL:
+    # Sirf high-limit models (30,000+ TPM) use karenge taaki rate limit na aaye
+    return [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "mixtral-8x7b-32768"
+    ]
         return [CACHED_WORKING_MODEL]
     fallback = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "llama3-70b-8192", "mixtral-8x7b-32768"]
     try:
@@ -372,7 +376,8 @@ async def chat(payload: QueryRequest):
     }
     
     save_history("user", payload.message)
-    past_turns = get_recent_history(limit=8)
+    past_turns = get_recent_history(limit=4)
+
     candidate_models = resolve_model(headers)
     last_err = ""
 
