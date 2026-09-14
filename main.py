@@ -4,13 +4,12 @@ import sqlite3
 from typing import List, Dict, Any
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 import requests
 
 app = FastAPI(title="Mobile AI Agent")
-templates = Jinja2Templates(directory="templates")
 
+# SQLite Database Setup (Persistent Memory)
 DB_PATH = "agent_memory.db"
 def init_db():
     with sqlite3.connect(DB_PATH) as conn:
@@ -23,10 +22,12 @@ def init_db():
         """)
 init_db()
 
+# LLM Configuration
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.groq.com/openai/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "llama-3.3-70b-versatile")
 
+# Tools
 def run_calculator(expression: str) -> str:
     try:
         sanitized = "".join([c for c in expression if c in "0123456789+-*/(). "])
@@ -82,12 +83,17 @@ TOOLS_SPEC = [
     }
 ]
 
+# Direct HTML Loader
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    file_path = os.path.join(os.path.dirname(__file__), "templates", "index.html")
+    if os.path.exists(file_path):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    return "<h1>index.html file nahi mili templates folder mein.</h1>"
+
 class QueryRequest(BaseModel):
     message: str
-
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
 
 @app.post("/api/chat")
 async def chat(payload: QueryRequest):
@@ -134,4 +140,3 @@ async def chat(payload: QueryRequest):
             })
 
     return {"response": "Agent step limit reached."}
-          
