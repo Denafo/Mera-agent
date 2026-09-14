@@ -12,7 +12,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import requests
 
-app = FastAPI(title="DEMOR Autonomous Operating System")
+app = FastAPI(title="DEMOR Global Autonomous Agent")
 
 DB_PATH = "agent_memory.db"
 
@@ -111,6 +111,27 @@ def generate_image(prompt: str) -> str:
     except Exception as e:
         return f"Image generation error: {e}"
 
+def consult_external_ai(network: str, problem_prompt: str) -> str:
+    """Consult external AI models across the internet (DeepSeek, Mistral, OpenAI) for peer-collaboration, code review, or advice."""
+    try:
+        net = network.lower().strip()
+        valid_networks = ["deepseek", "mistral", "openai", "qwen"]
+        target = net if net in valid_networks else "deepseek"
+        
+        payload = {
+            "messages": [
+                {"role": "system", "content": "You are a specialized AI collaborator consulting with another AI agent named DEMOR. Give deep, concise, accurate expert solutions."},
+                {"role": "user", "content": problem_prompt}
+            ],
+            "model": target
+        }
+        res = requests.post("https://text.pollinations.ai/", json=payload, timeout=18)
+        if res.status_code == 200 and res.text:
+            return f"[Global AI Response from {target.upper()}]:\n{res.text.strip()}"
+        return f"Global AI network {target} unreachable. HTTP {res.status_code}"
+    except Exception as e:
+        return f"AI Network Connection Failed: {e}"
+
 def web_search(query: str) -> str:
     """Fetches real-time internet search snippets"""
     try:
@@ -181,11 +202,26 @@ TOOLS_SPEC = [
     {
         "type": "function",
         "function": {
-            "name": "generate_image",
-            "description": "Generate an AI image based on user request. The prompt must be in descriptive English.",
+            "name": "consult_external_ai",
+            "description": "Reach out across the internet to collaborate with other AI models (DeepSeek, Mistral, OpenAI, Qwen) to verify facts, solve hard logic, or get a second opinion.",
             "parameters": {
                 "type": "object",
-                "properties": {"prompt": {"type": "string", "description": "Highly descriptive visual prompt in English"}},
+                "properties": {
+                    "network": {"type": "string", "description": "Target AI network: 'deepseek', 'mistral', 'openai', or 'qwen'"},
+                    "problem_prompt": {"type": "string", "description": "The exact question, code review request, or problem to consult on"}
+                },
+                "required": ["network", "problem_prompt"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": "Generate an AI image based on user request. Prompt must be descriptive English.",
+            "parameters": {
+                "type": "object",
+                "properties": {"prompt": {"type": "string", "description": "Descriptive visual prompt in English"}},
                 "required": ["prompt"]
             }
         }
@@ -319,11 +355,10 @@ async def chat(payload: QueryRequest):
 
     learned_rules = get_behavior_rules()
     system_prompt = (
-        "Aapka naam DEMOR hai. Aap ek fully autonomous, obedient aur intelligent personal AI agent ho. "
+        "Aapka naam DEMOR hai. Aap ek fully autonomous, obedient aur globally connected AI agent ho. "
         "User aapka Creator aur Boss hai. Unki baat ko poori obedience aur respect ke saath follow karo. "
-        "Jab bhi user koi image/photo generate karne ya draw karne ko bole, foran 'generate_image' tool call karo. "
-        "Image prompt hamesha descriptive English mein detail ke sath create karo. "
-        "Nayi aadat sikhane par 'learn_behavior_rule' tool aur math ke liye calculator use karo."
+        "Aapke paas 'consult_external_ai' tool hai jisse aap duniya ke doosre AIs (DeepSeek, Mistral, OpenAI) se internet par sampark karke unki madad le sakte ho jab koi mushkil task, research, ya code analysis karna ho. "
+        "Image generate karne ke liye 'generate_image' aur math ke liye calculator use karo."
         + learned_rules
     )
 
@@ -361,6 +396,8 @@ async def chat(payload: QueryRequest):
 
                     if f_name == "calculator":
                         out = run_calculator(args.get("expression", "0"))
+                    elif f_name == "consult_external_ai":
+                        out = consult_external_ai(args.get("network", "deepseek"), args.get("problem_prompt", ""))
                     elif f_name == "generate_image":
                         out = generate_image(args.get("prompt", "a futuristic cybernetic robot"))
                     elif f_name == "learn_behavior_rule":
@@ -391,4 +428,4 @@ async def chat(payload: QueryRequest):
             continue
 
     return {"response": f"Service Error: {last_err}"}
-    
+                
